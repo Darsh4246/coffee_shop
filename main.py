@@ -88,6 +88,10 @@ def serve_order(order_id):
 def approve_order(order_id):
     update_order_status(order_id, "Pending")
 
+# Decline order
+def decline_order(order_id):
+    update_order_status(order_id, "Declined")
+
 # Get all orders for a token number
 def get_orders_by_token(token):
     df = pd.read_excel(EXCEL_FILE)
@@ -112,6 +116,10 @@ if 'name' not in st.session_state:
     st.session_state.name = ""
 if 'token_number' not in st.session_state:
     st.session_state.token_number = generate_token()
+if 'track_token' not in st.session_state:
+    st.session_state.track_token = ""
+if 'track_results' not in st.session_state:
+    st.session_state.track_results = None
 
 if page == "Customer":
     st.header("Customer - Place Your Order")
@@ -144,15 +152,24 @@ if page == "Customer":
 
 elif page == "Track Order":
     st.header("Track Your Order")
-    token_input = st.text_input("Enter your token number", value="")
+    token_input = st.text_input("Enter your token number", value=st.session_state.track_token)
+
     if st.button("Track"):
+        st.session_state.track_token = token_input
         orders = get_orders_by_token(token_input)
         if not orders.empty:
-            st.markdown(f"## Token: {token_input}")
-            for idx, row in orders.iterrows():
-                st.write(f"{row['Item']} x {row['Quantity']} - Status: {row['Status']}")
+            st.session_state.track_results = orders
         else:
-            st.warning("No orders found for this token number.")
+            st.session_state.track_results = pd.DataFrame()
+
+    if st.session_state.track_token:
+        if st.session_state.track_results is not None:
+            if not st.session_state.track_results.empty:
+                st.markdown(f"## Token: {st.session_state.track_token}")
+                for idx, row in st.session_state.track_results.iterrows():
+                    st.write(f"{row['Item']} x {row['Quantity']} - Status: {row['Status']}")
+            else:
+                st.warning("No orders found for this token number.")
 
 elif page in ["Serve", "Cook"]:
     password = st.text_input("Enter password to access this page", type="password")
@@ -180,7 +197,7 @@ elif page in ["Serve", "Cook"]:
         st.header("Serve - Orders to Deliver")
         unapproved_orders = get_orders_by_status("Unapproved")
         if not unapproved_orders.empty:
-            st.subheader("Approve Orders (After Payment)")
+            st.subheader("Approve or Decline Orders (After Payment)")
             grouped = unapproved_orders.groupby("OrderGroupID")
             for group_id, group_df in grouped:
                 with st.expander(f"Order Group - Token: {group_df.iloc[0]['TokenNumber']}, Customer: {group_df.iloc[0]['Name']}"):
@@ -188,10 +205,16 @@ elif page in ["Serve", "Cook"]:
                         st.text(f"{row['Item']} x {row['Quantity']} (Add-ons: {row['AddOns']}) - ₹{row['TotalPrice']}")
                     group_total = group_df["TotalPrice"].sum()
                     st.text(f"Total Price: ₹{group_total}")
-                    if st.button("Approve Order", key=f"approve_{group_id}"):
+                    col1, col2 = st.columns(2)
+                    if col1.button("Approve Order", key=f"approve_{group_id}"):
                         for idx, row in group_df.iterrows():
                             approve_order(row["OrderID"])
                         st.success("Order approved.")
+                        st.rerun()
+                    if col2.button("Decline Order", key=f"decline_{group_id}"):
+                        for idx, row in group_df.iterrows():
+                            decline_order(row["OrderID"])
+                        st.warning("Order declined.")
                         st.rerun()
 
         cooked_orders = get_orders_by_status("Completed")
