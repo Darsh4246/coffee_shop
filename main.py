@@ -172,7 +172,7 @@ elif page in ["Serve", "Cook"]:
                     if st.button("Mark as Cooked", key=row["OrderID"]):
                         cook_order(row["OrderID"])
                         st.success("Order marked as cooked.")
-                        st.experimental_rerun()
+                        st.rerun()
         else:
             st.info("No pending orders.")
 
@@ -192,7 +192,7 @@ elif page in ["Serve", "Cook"]:
                         for idx, row in group_df.iterrows():
                             approve_order(row["OrderID"])
                         st.success("Order approved.")
-                        st.experimental_rerun()
+                        st.rerun()
 
         cooked_orders = get_orders_by_status("Completed")
         if not cooked_orders.empty:
@@ -205,6 +205,6 @@ elif page in ["Serve", "Cook"]:
                     if st.button("Mark as Delivered", key=row["OrderID"]):
                         serve_order(row["OrderID"])
                         st.success("Order marked as delivered.")
-                        st.experimental_rerun()
+                        st.rerun()
         else:
             st.info("No orders ready to serve.")
