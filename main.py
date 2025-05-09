@@ -72,6 +72,19 @@ if page == "Cook":
 
 elif page == "Serve":
     st.header("Serve - Orders to Deliver")
+
+    # Take new order
+    with st.form(key='new_order_form'):
+        st.subheader("Take New Order")
+        item = st.text_input("Item", "")
+        quantity = st.number_input("Quantity", min_value=1, step=1)
+        addons = st.text_area("Add-ons (comma separated)", "")
+        submit_button = st.form_submit_button("Submit Order")
+        
+        if submit_button and item:
+            create_order(item, quantity, addons)
+            st.success(f"New order for {item} (Qty: {quantity}) added successfully!")
+
     cooked_orders = get_orders_by_status("Completed")
     if not cooked_orders.empty:
         for idx, row in cooked_orders.iterrows():
