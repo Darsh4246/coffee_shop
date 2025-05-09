@@ -4,6 +4,15 @@ from datetime import datetime
 import uuid
 
 EXCEL_FILE = "coffee_orders.xlsx"
+PASSWORD = "admin123"  # simple password for serve and cook pages
+
+MENU = {
+    "Espresso": 100,
+    "Latte": 150,
+    "Cappuccino": 130,
+    "Mocha": 160,
+    "Americano": 110
+}
 
 # Initialize Excel if not exists
 def initialize_excel():
@@ -19,7 +28,7 @@ def create_order(item, quantity, addons, name, token_number):
     new_order = {
         "OrderID": str(uuid.uuid4()),
         "OrderTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "Status": "Pending",
+        "Status": "Unapproved",
         "Item": item,
         "Quantity": quantity,
         "AddOns": addons,
@@ -49,56 +58,78 @@ def cook_order(order_id):
 def serve_order(order_id):
     update_order_status(order_id, "Delivered")
 
+# Approve order after payment
+def approve_order(order_id):
+    update_order_status(order_id, "Pending")
+
 # Initialize file
 initialize_excel()
 
 # Streamlit UI
-st.set_page_config(page_title="Coffee Shop", layout="wide")
-st.title("Coffee Shop Order Management")
+st.set_page_config(page_title="The Coffee Shop", layout="wide")
+st.title("The Coffee Shop")
 
-page = st.sidebar.selectbox("Choose view", ["Serve", "Cook"])
+page = st.sidebar.selectbox("Choose view", ["Customer", "Serve", "Cook"])
 
-if page == "Cook":
-    st.header("Kitchen - Orders to Prepare")
-    pending_orders = get_orders_by_status("Pending")
-    if not pending_orders.empty:
-        for idx, row in pending_orders.iterrows():
-            with st.expander(f"Order: {row['Item']} (Qty: {row['Quantity']})"):
-                st.text(f"Add-ons: {row['AddOns']}")
-                st.text(f"Customer: {row['Name']}, Token: {row['TokenNumber']}")
-                if st.button("Mark as Cooked", key=row["OrderID"]):
-                    cook_order(row["OrderID"])
-                    st.success("Order marked as cooked.")
-                    st.rerun()
-    else:
-        st.info("No pending orders.")
-
-elif page == "Serve":
-    st.header("Serve - Orders to Deliver")
-
-    # Take new order
-    with st.form(key='new_order_form'):
-        st.subheader("Take New Order")
-        name = st.text_input("Customer Name", "")
-        token_number = st.text_input("Token Number", "")
-        item = st.text_input("Item", "")
+if page == "Customer":
+    st.header("Customer - Place Your Order")
+    with st.form(key='customer_order_form'):
+        name = st.text_input("Customer Name")
+        token_number = st.text_input("Token Number")
+        item = st.selectbox("Choose your item", list(MENU.keys()))
         quantity = st.number_input("Quantity", min_value=1, step=1)
         addons = st.text_area("Add-ons (comma separated)", "")
-        submit_button = st.form_submit_button("Submit Order")
-        
-        if submit_button and item:
+        submitted = st.form_submit_button("Place Order (Pay in Cash)")
+        if submitted:
             create_order(item, quantity, addons, name, token_number)
-            st.success(f"New order for {item} (Qty: {quantity}) added successfully!")
+            st.success("Order placed! Please pay at the counter for approval.")
 
-    cooked_orders = get_orders_by_status("Completed")
-    if not cooked_orders.empty:
-        for idx, row in cooked_orders.iterrows():
-            with st.expander(f"Order: {row['Item']} (Qty: {row['Quantity']})"):
-                st.text(f"Add-ons: {row['AddOns']}")
-                st.text(f"Customer: {row['Name']}, Token: {row['TokenNumber']}")
-                if st.button("Mark as Delivered", key=row["OrderID"]):
-                    serve_order(row["OrderID"])
-                    st.success("Order marked as delivered.")
-                    st.rerun()
-    else:
-        st.info("No orders ready to serve.")
+elif page in ["Serve", "Cook"]:
+    password = st.text_input("Enter password to access this page", type="password")
+    if password != PASSWORD:
+        st.warning("Incorrect password")
+        st.stop()
+
+    if page == "Cook":
+        st.header("Kitchen - Orders to Prepare")
+        pending_orders = get_orders_by_status("Pending")
+        if not pending_orders.empty:
+            for idx, row in pending_orders.iterrows():
+                with st.expander(f"Order: {row['Item']} (Qty: {row['Quantity']})"):
+                    st.text(f"Add-ons: {row['AddOns']}")
+                    st.text(f"Customer: {row['Name']}, Token: {row['TokenNumber']}")
+                    if st.button("Mark as Cooked", key=row["OrderID"]):
+                        cook_order(row["OrderID"])
+                        st.success("Order marked as cooked.")
+                        st.rerun()
+        else:
+            st.info("No pending orders.")
+
+    elif page == "Serve":
+        st.header("Serve - Orders to Deliver")
+
+        # Approve new unapproved orders
+        unapproved_orders = get_orders_by_status("Unapproved")
+        if not unapproved_orders.empty:
+            st.subheader("Approve Orders (After Payment)")
+            for idx, row in unapproved_orders.iterrows():
+                with st.expander(f"Unapproved Order - {row['Item']} (Qty: {row['Quantity']})"):
+                    st.text(f"Customer: {row['Name']}, Token: {row['TokenNumber']}")
+                    if st.button("Approve Order", key=f"approve_{row['OrderID']}"):
+                        approve_order(row["OrderID"])
+                        st.success("Order approved.")
+                        st.rerun()
+
+        cooked_orders = get_orders_by_status("Completed")
+        if not cooked_orders.empty:
+            st.subheader("Ready to Serve")
+            for idx, row in cooked_orders.iterrows():
+                with st.expander(f"Order: {row['Item']} (Qty: {row['Quantity']})"):
+                    st.text(f"Add-ons: {row['AddOns']}")
+                    st.text(f"Customer: {row['Name']}, Token: {row['TokenNumber']}")
+                    if st.button("Mark as Delivered", key=row["OrderID"]):
+                        serve_order(row["OrderID"])
+                        st.success("Order marked as delivered.")
+                        st.rerun()
+        else:
+            st.info("No orders ready to serve.")
