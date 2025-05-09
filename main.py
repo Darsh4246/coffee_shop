@@ -66,7 +66,7 @@ if page == "Cook":
                 if st.button("Mark as Cooked", key=row["OrderID"]):
                     cook_order(row["OrderID"])
                     st.success("Order marked as cooked.")
-                    st.experimental_rerun()
+                    st.rerun()
     else:
         st.info("No pending orders.")
 
@@ -93,6 +93,6 @@ elif page == "Serve":
                 if st.button("Mark as Delivered", key=row["OrderID"]):
                     serve_order(row["OrderID"])
                     st.success("Order marked as delivered.")
-                    st.experimental_rerun()
+                    st.rerun()
     else:
         st.info("No orders ready to serve.")
