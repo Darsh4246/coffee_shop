@@ -1,5 +1,6 @@
 import pandas as pd
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
 import uuid
 import random
@@ -20,6 +21,9 @@ MENU = {
     "Veg Roll": 55,
     "Paneer Roll": 65
 }
+
+# Auto-refresh every 5 seconds
+st_autorefresh(interval=5000, key="auto_refresh")
 
 # Initialize Excel if not exists
 def initialize_excel():
@@ -94,47 +98,60 @@ initialize_excel()
 st.set_page_config(page_title="The Coffee Shop", layout="wide")
 st.title("The Coffee Shop")
 
-page = st.sidebar.selectbox("Choose view", ["Customer", "Serve", "Cook"])
+page = st.sidebar.selectbox("Choose view", ["Customer", "Serve", "Cook", "Track Order"])
+
+# Ensure session state persists across page refresh
+if 'selected_items' not in st.session_state:
+    st.session_state.selected_items = []
+if 'quantities' not in st.session_state:
+    st.session_state.quantities = {}
+if 'addons' not in st.session_state:
+    st.session_state.addons = ""
+if 'name' not in st.session_state:
+    st.session_state.name = ""
+if 'token_number' not in st.session_state:
+    st.session_state.token_number = generate_token()
 
 if page == "Customer":
     st.header("Customer - Place Your Order")
     with st.form(key='customer_order_form'):
-        name = st.text_input("Customer Name")
-        token_number = generate_token()
+        st.session_state.name = st.text_input("Customer Name", value=st.session_state.name)
+        token_number = st.session_state.token_number
 
-        selected_items = st.multiselect("Select Items", list(MENU.keys()))
+        selected_items = st.multiselect("Select Items", list(MENU.keys()), default=st.session_state.selected_items)
         quantities = []
-        total_price = 0
+        for item in selected_items:
+            q = st.number_input(f"Quantity for {item}", min_value=1, step=1, key=item, value=st.session_state.quantities.get(item, 1))
+            quantities.append(q)
 
-        if selected_items:
-            for item in selected_items:
-                q = st.number_input(f"Quantity for {item}", min_value=1, step=1, key=item)
-                quantities.append(q)
-                total_price += MENU[item] * q
-
-        addons = st.text_area("Add-ons (comma separated)", "")
-
+        addons = st.text_area("Add-ons (comma separated)", value=st.session_state.addons)
+        total_price = sum([MENU[item] * q for item, q in zip(selected_items, quantities)])
         st.write(f"### Total Price: ₹{total_price}")
+
+        st.session_state.selected_items = selected_items
+        st.session_state.quantities = dict(zip(selected_items, quantities))
+        st.session_state.addons = addons
 
         submitted = st.form_submit_button("Place Order (Pay in Cash)")
         if submitted:
             if selected_items:
-                success, order_group_id = create_order(selected_items, quantities, addons, name, token_number)
+                success, order_group_id = create_order(selected_items, quantities, addons, st.session_state.name, token_number)
                 st.success("Order placed! Please pay at the counter for approval.")
                 st.markdown(f"## Your Token Number: {token_number}")
-                st.markdown("---")
-
-                # Show Track Order Immediately
-                st.header("Track Your Order")
-                orders = get_orders_by_token(token_number)
-                if not orders.empty:
-                    st.markdown(f"## Token: {token_number}")
-                    for idx, row in orders.iterrows():
-                        st.write(f"{row['Item']} x {row['Quantity']} - Status: {row['Status']}")
-                else:
-                    st.warning("No orders found for this token number.")
             else:
                 st.warning("Please select at least one item.")
+
+elif page == "Track Order":
+    st.header("Track Your Order")
+    token_input = st.text_input("Enter your token number", value="")
+    if st.button("Track"):
+        orders = get_orders_by_token(token_input)
+        if not orders.empty:
+            st.markdown(f"## Token: {token_input}")
+            for idx, row in orders.iterrows():
+                st.write(f"{row['Item']} x {row['Quantity']} - Status: {row['Status']}")
+        else:
+            st.warning("No orders found for this token number.")
 
 elif page in ["Serve", "Cook"]:
     password = st.text_input("Enter password to access this page", type="password")
@@ -154,13 +171,12 @@ elif page in ["Serve", "Cook"]:
                     if st.button("Mark as Cooked", key=row["OrderID"]):
                         cook_order(row["OrderID"])
                         st.success("Order marked as cooked.")
-                        st.rerun()
+                        st.experimental_rerun()
         else:
             st.info("No pending orders.")
 
     elif page == "Serve":
         st.header("Serve - Orders to Deliver")
-
         unapproved_orders = get_orders_by_status("Unapproved")
         if not unapproved_orders.empty:
             st.subheader("Approve Orders (After Payment)")
@@ -175,7 +191,7 @@ elif page in ["Serve", "Cook"]:
                         for idx, row in group_df.iterrows():
                             approve_order(row["OrderID"])
                         st.success("Order approved.")
-                        st.rerun()
+                        st.experimental_rerun()
 
         cooked_orders = get_orders_by_status("Completed")
         if not cooked_orders.empty:
@@ -188,6 +204,6 @@ elif page in ["Serve", "Cook"]:
                     if st.button("Mark as Delivered", key=row["OrderID"]):
                         serve_order(row["OrderID"])
                         st.success("Order marked as delivered.")
-                        st.rerun()
+                        st.experimental_rerun()
         else:
             st.info("No orders ready to serve.")
