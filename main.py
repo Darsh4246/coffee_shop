@@ -10,11 +10,11 @@ def initialize_excel():
     try:
         pd.read_excel(EXCEL_FILE)
     except FileNotFoundError:
-        df = pd.DataFrame(columns=["OrderID", "OrderTime", "Status", "Item", "Quantity", "AddOns"])
+        df = pd.DataFrame(columns=["OrderID", "OrderTime", "Status", "Item", "Quantity", "AddOns", "Name", "TokenNumber"])
         df.to_excel(EXCEL_FILE, index=False)
 
 # Create new order
-def create_order(item, quantity, addons):
+def create_order(item, quantity, addons, name, token_number):
     df = pd.read_excel(EXCEL_FILE)
     new_order = {
         "OrderID": str(uuid.uuid4()),
@@ -22,7 +22,9 @@ def create_order(item, quantity, addons):
         "Status": "Pending",
         "Item": item,
         "Quantity": quantity,
-        "AddOns": addons
+        "AddOns": addons,
+        "Name": name,
+        "TokenNumber": token_number
     }
     df = pd.concat([df, pd.DataFrame([new_order])], ignore_index=True)
     df.to_excel(EXCEL_FILE, index=False)
@@ -63,6 +65,7 @@ if page == "Cook":
         for idx, row in pending_orders.iterrows():
             with st.expander(f"Order: {row['Item']} (Qty: {row['Quantity']})"):
                 st.text(f"Add-ons: {row['AddOns']}")
+                st.text(f"Customer: {row['Name']}, Token: {row['TokenNumber']}")
                 if st.button("Mark as Cooked", key=row["OrderID"]):
                     cook_order(row["OrderID"])
                     st.success("Order marked as cooked.")
@@ -76,13 +79,15 @@ elif page == "Serve":
     # Take new order
     with st.form(key='new_order_form'):
         st.subheader("Take New Order")
+        name = st.text_input("Customer Name", "")
+        token_number = st.text_input("Token Number", "")
         item = st.text_input("Item", "")
         quantity = st.number_input("Quantity", min_value=1, step=1)
         addons = st.text_area("Add-ons (comma separated)", "")
         submit_button = st.form_submit_button("Submit Order")
         
         if submit_button and item:
-            create_order(item, quantity, addons)
+            create_order(item, quantity, addons, name, token_number)
             st.success(f"New order for {item} (Qty: {quantity}) added successfully!")
 
     cooked_orders = get_orders_by_status("Completed")
@@ -90,6 +95,7 @@ elif page == "Serve":
         for idx, row in cooked_orders.iterrows():
             with st.expander(f"Order: {row['Item']} (Qty: {row['Quantity']})"):
                 st.text(f"Add-ons: {row['AddOns']}")
+                st.text(f"Customer: {row['Name']}, Token: {row['TokenNumber']}")
                 if st.button("Mark as Delivered", key=row["OrderID"]):
                     serve_order(row["OrderID"])
                     st.success("Order marked as delivered.")
