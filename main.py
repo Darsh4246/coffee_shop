@@ -94,7 +94,7 @@ initialize_excel()
 st.set_page_config(page_title="The Coffee Shop", layout="wide")
 st.title("The Coffee Shop")
 
-page = st.sidebar.selectbox("Choose view", ["Customer", "Serve", "Cook", "Track Order"])
+page = st.sidebar.selectbox("Choose view", ["Customer", "Serve", "Cook"])
 
 if page == "Customer":
     st.header("Customer - Place Your Order")
@@ -104,13 +104,16 @@ if page == "Customer":
 
         selected_items = st.multiselect("Select Items", list(MENU.keys()))
         quantities = []
-        for item in selected_items:
-            q = st.number_input(f"Quantity for {item}", min_value=1, step=1, key=item)
-            quantities.append(q)
+        total_price = 0
+
+        if selected_items:
+            for item in selected_items:
+                q = st.number_input(f"Quantity for {item}", min_value=1, step=1, key=item)
+                quantities.append(q)
+                total_price += MENU[item] * q
 
         addons = st.text_area("Add-ons (comma separated)", "")
 
-        total_price = sum([MENU[item] * q for item, q in zip(selected_items, quantities)])
         st.write(f"### Total Price: ₹{total_price}")
 
         submitted = st.form_submit_button("Place Order (Pay in Cash)")
@@ -119,20 +122,19 @@ if page == "Customer":
                 success, order_group_id = create_order(selected_items, quantities, addons, name, token_number)
                 st.success("Order placed! Please pay at the counter for approval.")
                 st.markdown(f"## Your Token Number: {token_number}")
+                st.markdown("---")
+
+                # Show Track Order Immediately
+                st.header("Track Your Order")
+                orders = get_orders_by_token(token_number)
+                if not orders.empty:
+                    st.markdown(f"## Token: {token_number}")
+                    for idx, row in orders.iterrows():
+                        st.write(f"{row['Item']} x {row['Quantity']} - Status: {row['Status']}")
+                else:
+                    st.warning("No orders found for this token number.")
             else:
                 st.warning("Please select at least one item.")
-
-elif page == "Track Order":
-    st.header("Track Your Order")
-    token_input = st.text_input("Enter your token number")
-    if st.button("Track"):
-        orders = get_orders_by_token(token_input)
-        if not orders.empty:
-            st.markdown(f"## Token: {token_input}")
-            for idx, row in orders.iterrows():
-                st.write(f"{row['Item']} x {row['Quantity']} - Status: {row['Status']}")
-        else:
-            st.warning("No orders found for this token number.")
 
 elif page in ["Serve", "Cook"]:
     password = st.text_input("Enter password to access this page", type="password")
