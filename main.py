@@ -11,7 +11,13 @@ MENU = {
     "Latte": 150,
     "Cappuccino": 130,
     "Mocha": 160,
-    "Americano": 110
+    "Americano": 110,
+    "Butter Popcorn": 70,
+    "Caramel Popcorn": 90,
+    "Paneer Sandwich": 120,
+    "Peri Peri Sandwich": 130,
+    "Veg Roll": 100,
+    "Paneer Roll": 120
 }
 
 # Initialize Excel if not exists
@@ -19,25 +25,27 @@ def initialize_excel():
     try:
         pd.read_excel(EXCEL_FILE)
     except FileNotFoundError:
-        df = pd.DataFrame(columns=["OrderID", "OrderTime", "Status", "Item", "Quantity", "AddOns", "Name", "TokenNumber"])
+        df = pd.DataFrame(columns=["OrderID", "OrderTime", "Status", "Item", "Quantity", "AddOns", "Name", "TokenNumber", "TotalPrice"])
         df.to_excel(EXCEL_FILE, index=False)
 
 # Create new order
 def create_order(item, quantity, addons, name, token_number):
     df = pd.read_excel(EXCEL_FILE)
-    new_order = {
-        "OrderID": str(uuid.uuid4()),
-        "OrderTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "Status": "Unapproved",
-        "Item": item,
-        "Quantity": quantity,
-        "AddOns": addons,
-        "Name": name,
-        "TokenNumber": token_number
-    }
-    df = pd.concat([df, pd.DataFrame([new_order])], ignore_index=True)
+    for i, q in zip(item, quantity):
+        new_order = {
+            "OrderID": str(uuid.uuid4()),
+            "OrderTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "Status": "Unapproved",
+            "Item": i,
+            "Quantity": q,
+            "AddOns": addons,
+            "Name": name,
+            "TokenNumber": token_number,
+            "TotalPrice": MENU.get(i, 0) * q
+        }
+        df = pd.concat([df, pd.DataFrame([new_order])], ignore_index=True)
     df.to_excel(EXCEL_FILE, index=False)
-    return new_order["OrderID"]
+    return True
 
 # Update order status
 def update_order_status(order_id, new_status):
@@ -76,13 +84,25 @@ if page == "Customer":
     with st.form(key='customer_order_form'):
         name = st.text_input("Customer Name")
         token_number = st.text_input("Token Number")
-        item = st.selectbox("Choose your item", list(MENU.keys()))
-        quantity = st.number_input("Quantity", min_value=1, step=1)
+
+        selected_items = st.multiselect("Select Items", list(MENU.keys()))
+        quantities = []
+        for item in selected_items:
+            q = st.number_input(f"Quantity for {item}", min_value=1, step=1, key=item)
+            quantities.append(q)
+
         addons = st.text_area("Add-ons (comma separated)", "")
+
+        total_price = sum([MENU[item] * q for item, q in zip(selected_items, quantities)])
+        st.write(f"Total Price: ₹{total_price}")
+
         submitted = st.form_submit_button("Place Order (Pay in Cash)")
         if submitted:
-            create_order(item, quantity, addons, name, token_number)
-            st.success("Order placed! Please pay at the counter for approval.")
+            if selected_items:
+                create_order(selected_items, quantities, addons, name, token_number)
+                st.success("Order placed! Please pay at the counter for approval.")
+            else:
+                st.warning("Please select at least one item.")
 
 elif page in ["Serve", "Cook"]:
     password = st.text_input("Enter password to access this page", type="password")
@@ -98,6 +118,7 @@ elif page in ["Serve", "Cook"]:
                 with st.expander(f"Order: {row['Item']} (Qty: {row['Quantity']})"):
                     st.text(f"Add-ons: {row['AddOns']}")
                     st.text(f"Customer: {row['Name']}, Token: {row['TokenNumber']}")
+                    st.text(f"Total Price: ₹{row['TotalPrice']}")
                     if st.button("Mark as Cooked", key=row["OrderID"]):
                         cook_order(row["OrderID"])
                         st.success("Order marked as cooked.")
@@ -115,6 +136,7 @@ elif page in ["Serve", "Cook"]:
             for idx, row in unapproved_orders.iterrows():
                 with st.expander(f"Unapproved Order - {row['Item']} (Qty: {row['Quantity']})"):
                     st.text(f"Customer: {row['Name']}, Token: {row['TokenNumber']}")
+                    st.text(f"Total Price: ₹{row['TotalPrice']}")
                     if st.button("Approve Order", key=f"approve_{row['OrderID']}"):
                         approve_order(row["OrderID"])
                         st.success("Order approved.")
@@ -127,6 +149,7 @@ elif page in ["Serve", "Cook"]:
                 with st.expander(f"Order: {row['Item']} (Qty: {row['Quantity']})"):
                     st.text(f"Add-ons: {row['AddOns']}")
                     st.text(f"Customer: {row['Name']}, Token: {row['TokenNumber']}")
+                    st.text(f"Total Price: ₹{row['TotalPrice']}")
                     if st.button("Mark as Delivered", key=row["OrderID"]):
                         serve_order(row["OrderID"])
                         st.success("Order marked as delivered.")
