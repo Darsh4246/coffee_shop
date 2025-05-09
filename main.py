@@ -2,22 +2,23 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime
 import uuid
+import random
 
 EXCEL_FILE = "coffee_orders.xlsx"
 PASSWORD = "admin123"  # simple password for serve and cook pages
 
 MENU = {
-    "Espresso": 100,
-    "Latte": 150,
-    "Cappuccino": 130,
-    "Mocha": 160,
-    "Americano": 110,
-    "Butter Popcorn": 70,
-    "Caramel Popcorn": 90,
-    "Paneer Sandwich": 120,
-    "Peri Peri Sandwich": 130,
-    "Veg Roll": 100,
-    "Paneer Roll": 120
+    "Espresso": 60,
+    "Latte": 80,
+    "Cappuccino": 75,
+    "Mocha": 85,
+    "Americano": 70,
+    "Butter Popcorn": 40,
+    "Caramel Popcorn": 50,
+    "Paneer Sandwich": 65,
+    "Peri Peri Sandwich": 70,
+    "Veg Roll": 55,
+    "Paneer Roll": 65
 }
 
 # Initialize Excel if not exists
@@ -25,15 +26,26 @@ def initialize_excel():
     try:
         pd.read_excel(EXCEL_FILE)
     except FileNotFoundError:
-        df = pd.DataFrame(columns=["OrderID", "OrderTime", "Status", "Item", "Quantity", "AddOns", "Name", "TokenNumber", "TotalPrice"])
+        df = pd.DataFrame(columns=["OrderID", "OrderTime", "Status", "Item", "Quantity", "AddOns", "Name", "TokenNumber", "TotalPrice", "OrderGroupID"])
         df.to_excel(EXCEL_FILE, index=False)
+
+# Generate a 3-digit unique token number
+def generate_token():
+    df = pd.read_excel(EXCEL_FILE)
+    existing_tokens = df['TokenNumber'].astype(str).tolist()
+    while True:
+        token = str(random.randint(100, 999))
+        if token not in existing_tokens:
+            return token
 
 # Create new order
 def create_order(item, quantity, addons, name, token_number):
     df = pd.read_excel(EXCEL_FILE)
+    order_group_id = str(uuid.uuid4())
     for i, q in zip(item, quantity):
         new_order = {
             "OrderID": str(uuid.uuid4()),
+            "OrderGroupID": order_group_id,
             "OrderTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "Status": "Unapproved",
             "Item": i,
@@ -45,7 +57,7 @@ def create_order(item, quantity, addons, name, token_number):
         }
         df = pd.concat([df, pd.DataFrame([new_order])], ignore_index=True)
     df.to_excel(EXCEL_FILE, index=False)
-    return True
+    return True, order_group_id
 
 # Update order status
 def update_order_status(order_id, new_status):
@@ -70,6 +82,11 @@ def serve_order(order_id):
 def approve_order(order_id):
     update_order_status(order_id, "Pending")
 
+# Get all orders for a token number
+def get_orders_by_token(token):
+    df = pd.read_excel(EXCEL_FILE)
+    return df[df['TokenNumber'].astype(str) == str(token)]
+
 # Initialize file
 initialize_excel()
 
@@ -77,13 +94,13 @@ initialize_excel()
 st.set_page_config(page_title="The Coffee Shop", layout="wide")
 st.title("The Coffee Shop")
 
-page = st.sidebar.selectbox("Choose view", ["Customer", "Serve", "Cook"])
+page = st.sidebar.selectbox("Choose view", ["Customer", "Serve", "Cook", "Track Order"])
 
 if page == "Customer":
     st.header("Customer - Place Your Order")
     with st.form(key='customer_order_form'):
         name = st.text_input("Customer Name")
-        token_number = st.text_input("Token Number")
+        token_number = generate_token()
 
         selected_items = st.multiselect("Select Items", list(MENU.keys()))
         quantities = []
@@ -94,15 +111,28 @@ if page == "Customer":
         addons = st.text_area("Add-ons (comma separated)", "")
 
         total_price = sum([MENU[item] * q for item, q in zip(selected_items, quantities)])
-        st.write(f"Total Price: ₹{total_price}")
+        st.write(f"### Total Price: ₹{total_price}")
 
         submitted = st.form_submit_button("Place Order (Pay in Cash)")
         if submitted:
             if selected_items:
-                create_order(selected_items, quantities, addons, name, token_number)
+                success, order_group_id = create_order(selected_items, quantities, addons, name, token_number)
                 st.success("Order placed! Please pay at the counter for approval.")
+                st.markdown(f"## Your Token Number: {token_number}")
             else:
                 st.warning("Please select at least one item.")
+
+elif page == "Track Order":
+    st.header("Track Your Order")
+    token_input = st.text_input("Enter your token number")
+    if st.button("Track"):
+        orders = get_orders_by_token(token_input)
+        if not orders.empty:
+            st.markdown(f"## Token: {token_input}")
+            for idx, row in orders.iterrows():
+                st.write(f"{row['Item']} x {row['Quantity']} - Status: {row['Status']}")
+        else:
+            st.warning("No orders found for this token number.")
 
 elif page in ["Serve", "Cook"]:
     password = st.text_input("Enter password to access this page", type="password")
@@ -129,16 +159,19 @@ elif page in ["Serve", "Cook"]:
     elif page == "Serve":
         st.header("Serve - Orders to Deliver")
 
-        # Approve new unapproved orders
         unapproved_orders = get_orders_by_status("Unapproved")
         if not unapproved_orders.empty:
             st.subheader("Approve Orders (After Payment)")
-            for idx, row in unapproved_orders.iterrows():
-                with st.expander(f"Unapproved Order - {row['Item']} (Qty: {row['Quantity']})"):
-                    st.text(f"Customer: {row['Name']}, Token: {row['TokenNumber']}")
-                    st.text(f"Total Price: ₹{row['TotalPrice']}")
-                    if st.button("Approve Order", key=f"approve_{row['OrderID']}"):
-                        approve_order(row["OrderID"])
+            grouped = unapproved_orders.groupby("OrderGroupID")
+            for group_id, group_df in grouped:
+                with st.expander(f"Order Group - Token: {group_df.iloc[0]['TokenNumber']}, Customer: {group_df.iloc[0]['Name']}"):
+                    for idx, row in group_df.iterrows():
+                        st.text(f"{row['Item']} x {row['Quantity']} (Add-ons: {row['AddOns']}) - ₹{row['TotalPrice']}")
+                    group_total = group_df["TotalPrice"].sum()
+                    st.text(f"Total Price: ₹{group_total}")
+                    if st.button("Approve Order", key=f"approve_{group_id}"):
+                        for idx, row in group_df.iterrows():
+                            approve_order(row["OrderID"])
                         st.success("Order approved.")
                         st.rerun()
 
