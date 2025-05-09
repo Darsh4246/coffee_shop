@@ -1,5 +1,7 @@
-import pandas as pd
 import streamlit as st
+st.set_page_config(page_title="The Coffee Shop", layout="wide")
+
+import pandas as pd
 from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
 import uuid
@@ -95,7 +97,6 @@ def get_orders_by_token(token):
 initialize_excel()
 
 # Streamlit UI
-st.set_page_config(page_title="The Coffee Shop", layout="wide")
 st.title("The Coffee Shop")
 
 page = st.sidebar.selectbox("Choose view", ["Customer", "Serve", "Cook", "Track Order"])
