@@ -120,6 +120,8 @@ if 'track_token' not in st.session_state:
     st.session_state.track_token = ""
 if 'track_results' not in st.session_state:
     st.session_state.track_results = None
+if 'tracking_initialized' not in st.session_state:
+    st.session_state.tracking_initialized = False
 
 if page == "Customer":
     st.header("Customer - Place Your Order")
@@ -154,7 +156,7 @@ elif page == "Track Order":
     st.header("Track Your Order")
     token_input = st.text_input("Enter your token number", value=st.session_state.track_token)
 
-    if st.button("Track"):
+    if token_input:
         st.session_state.track_token = token_input
         orders = get_orders_by_token(token_input)
         if not orders.empty:
