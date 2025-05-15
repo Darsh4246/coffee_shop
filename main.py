@@ -9,6 +9,7 @@ import uuid
 import random
 import os
 import io
+from typing import List, Tuple, Dict
 
 # Database configuration
 DB_FILE = "coffee_orders.db"
