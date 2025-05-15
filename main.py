@@ -30,8 +30,15 @@ MENU = {
     "Paneer Roll": 65
 }
 
-page = st.sidebar.selectbox("Choose view", ["Customer", "Serve", "Cook", "Track Order", "Admin Dashboard"])
-if page not in ["Customer", "Admin Dashboard"]:
+# Fun Spotify embed
+st.markdown("""
+<iframe style="border-radius:12px" src="https://open.spotify.com/embed/track/4gvrJnKCKIPiacNsWVQwEU?utm_source=generator" 
+width="100%" height="152" frameBorder="0" allowfullscreen="" 
+allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
+""", unsafe_allow_html=True)
+
+page = st.sidebar.selectbox("Choose view", ["Customer", "Approve", "Cook", "Serve", "Track Order", "Admin Dashboard"])
+if page not in ["Customer", "Admin Dashboard", "Track Order"]:
     st_autorefresh(interval=5000, key="auto_refresh")
 
 def initialize_db():
@@ -129,6 +136,8 @@ def get_order_stats() -> Dict[str, int]:
         stats = {}
         c.execute('''SELECT COUNT(*) FROM orders''')
         stats['total'] = c.fetchone()[0]
+        c.execute('''SELECT COUNT(*) FROM orders WHERE Status = ?''', ("Unapproved",))
+        stats['unapproved'] = c.fetchone()[0]
         c.execute('''SELECT COUNT(*) FROM orders WHERE Status = ?''', ("Pending",))
         stats['pending'] = c.fetchone()[0]
         c.execute('''SELECT COUNT(*) FROM orders WHERE Status = ?''', ("Completed",))
@@ -155,8 +164,8 @@ if 'name' not in st.session_state:
     st.session_state.name = ""
 if 'token_number' not in st.session_state:
     st.session_state.token_number = generate_token()
-if 'track_token' not in st.session_state:
-    st.session_state.track_token = ""
+if 'track_token_input' not in st.session_state:
+    st.session_state.track_token_input = ""
 if 'track_results' not in st.session_state:
     st.session_state.track_results = None
 if 'tracking_initialized' not in st.session_state:
@@ -193,45 +202,153 @@ if page == "Customer":
                 st.success(f"Order placed! Please pay at the counter. Total: ₹{total_price}")
                 st.markdown(f"## Your Token Number: `{token}`")
 
-elif page == "Serve":
-    st.header("Serve Orders")
+elif page == "Approve":
+    st.header("Approve Orders After Payment")
     password = st.text_input("Enter password", type="password")
     if password != PASSWORD:
         st.warning("Incorrect password")
         st.stop()
-    orders = get_orders_by_status("Completed")
-    for _, row in orders.iterrows():
-        with st.expander(f"Token {row['TokenNumber']} - {row['Item']} x{row['Quantity']}"):
-            if st.button("Mark as Delivered", key=f"serve_{row['OrderID']}"):
-                serve_order(row['OrderID'])
-                st.success("Order marked as delivered.")
-            if st.button("Decline Order", key=f"decline_serve_{row['OrderID']}"):
-                decline_order(row['OrderID'])
-                st.warning("Order Declined")
+    
+    unapproved_orders = get_orders_by_status("Unapproved")
+    pending_orders = get_orders_by_status("Pending")
+    
+    st.subheader("Awaiting Payment Approval")
+    if unapproved_orders.empty:
+        st.info("No orders waiting for approval")
+    else:
+        for _, row in unapproved_orders.iterrows():
+            with st.expander(f"Token {row['TokenNumber']} - {row['Name']} - {row['Item']} x{row['Quantity']} (₹{row['TotalPrice']})"):
+                st.write(f"**Order:** {row['Item']} x{row['Quantity']}")
+                st.write(f"**Total:** ₹{row['TotalPrice']}")
+                st.write(f"**Notes:** {row['AddOns']}")
+                if st.button("Approve Payment", key=f"approve_{row['OrderID']}"):
+                    update_order_status(row['OrderID'], "Pending")
+                    st.success("Payment approved - sent to kitchen")
+                    st.rerun()
+                if st.button("Decline Order", key=f"decline_{row['OrderID']}"):
+                    update_order_status(row['OrderID'], "Declined")
+                    st.warning("Order declined")
+                    st.rerun()
+
+    st.subheader("Approved Orders (Pending Preparation)")
+    if pending_orders.empty:
+        st.info("No orders pending preparation")
+    else:
+        st.dataframe(pending_orders[["TokenNumber", "Item", "Quantity", "TotalPrice"]])
 
 elif page == "Cook":
-    st.header("Cook Orders")
+    st.header("Kitchen - Prepare Orders")
     password = st.text_input("Enter password", type="password")
     if password != PASSWORD:
         st.warning("Incorrect password")
         st.stop()
+    
     orders = get_orders_by_status("Pending")
-    for _, row in orders.iterrows():
-        with st.expander(f"Token {row['TokenNumber']} - {row['Item']} x{row['Quantity']}"):
-            if st.button("Mark as Cooked", key=f"cook_{row['OrderID']}"):
-                cook_order(row['OrderID'])
-                st.success("Order marked as cooked.")
+    if orders.empty:
+        st.info("No orders to prepare - all caught up!")
+    else:
+        for _, row in orders.iterrows():
+            with st.expander(f"Token {row['TokenNumber']} - {row['Item']} x{row['Quantity']}"):
+                st.write(f"**Customer:** {row['Name']}")
+                st.write(f"**Notes:** {row['AddOns']}")
+                if st.button("Mark as Prepared", key=f"cook_{row['OrderID']}"):
+                    update_order_status(row['OrderID'], "Completed")
+                    st.success("Order marked as ready to serve!")
+                    st.rerun()
+
+elif page == "Serve":
+    st.header("Serve Orders to Customers")
+    password = st.text_input("Enter password", type="password")
+    if password != PASSWORD:
+        st.warning("Incorrect password")
+        st.stop()
+    
+    orders = get_orders_by_status("Completed")
+    if orders.empty:
+        st.info("No orders ready to serve yet")
+    else:
+        token_numbers = orders['TokenNumber'].unique()
+        for token in token_numbers:
+            token_orders = orders[orders['TokenNumber'] == token]
+            customer_name = token_orders.iloc[0]['Name']
+            
+            with st.expander(f"Token {token} - {customer_name}"):
+                st.write("**Order Summary:**")
+                for _, row in token_orders.iterrows():
+                    st.write(f"- {row['Item']} x{row['Quantity']} (₹{row['TotalPrice']})")
+                
+                total = token_orders['TotalPrice'].sum()
+                st.write(f"**Total: ₹{total}**")
+                
+                if st.button("Mark as Delivered", key=f"serve_{token}"):
+                    for _, row in token_orders.iterrows():
+                        update_order_status(row['OrderID'], "Delivered")
+                    st.success(f"Order for Token {token} marked as delivered!")
+                    st.rerun()
 
 elif page == "Track Order":
     st.header("Track Your Order")
-    token = st.text_input("Enter your token number to track your order")
-    if st.button("Track"):
-        orders = get_orders_by_token(token)
-        if not orders.empty:
-            st.write(f"### Order Status for Token `{token}`")
-            st.dataframe(orders[["Item", "Quantity", "Status", "TotalPrice"]])
-        else:
-            st.warning("No order found with this token number.")
+    
+    # Persistent input field
+    token = st.text_input(
+        "Enter your token number to track your order",
+        value=st.session_state.get('track_token_input', ''),
+        key="track_token_input"
+    )
+    
+    # Store the token in session state
+    st.session_state.track_token_input = token
+    
+    # Display area that will auto-update
+    track_placeholder = st.empty()
+    
+    # Function to display order status
+    def display_order_status():
+        if token:
+            orders = get_orders_by_token(token)
+            if not orders.empty:
+                with track_placeholder.container():
+                    st.write(f"### Order Status for Token `{token}`")
+                    st.dataframe(orders[["Item", "Quantity", "Status", "TotalPrice"]])
+                    
+                    # Display summary information
+                    total_items = orders['Quantity'].sum()
+                    total_price = orders['TotalPrice'].sum()
+                    current_status = orders.iloc[0]['Status']
+                    
+                    st.write("### Order Summary")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Total Items", total_items)
+                    with col2:
+                        st.metric("Total Amount", f"₹{total_price}")
+                    with col3:
+                        st.metric("Current Status", current_status)
+                    
+                    # Show status progress
+                    status_flow = ["Unapproved", "Pending", "Completed", "Delivered"]
+                    try:
+                        current_index = status_flow.index(current_status)
+                        progress = (current_index + 1) / len(status_flow)
+                        st.progress(int(progress * 100))
+                    except ValueError:
+                        st.write("Status: Unknown")
+            else:
+                with track_placeholder.container():
+                    st.warning("No order found with this token number.")
+    
+    # Initial display
+    display_order_status()
+    
+    # Auto-refresh only the results
+    if page == "Track Order":
+        st_autorefresh(
+            interval=5000, 
+            key="track_order_refresh",
+            limit=100,
+            debounce=True,
+            on_refresh=display_order_status
+        )
 
 elif page == "Admin Dashboard":
     st.header("Admin Dashboard")
@@ -256,4 +373,5 @@ elif page == "Admin Dashboard":
     st.subheader("📈 Quick Stats")
     stats = get_order_stats()
     st.write(f"Total Orders: {stats['total']}")
-    st.write(f"Pending: {stats['pending']}, Cooked: {stats['completed']}, Delivered: {stats['delivered']}, Declined: {stats['declined']}")
+    st.write(f"Unapproved: {stats['unapproved']}, Pending: {stats['pending']}")
+    st.write(f"Cooked: {stats['completed']}, Delivered: {stats['delivered']}, Declined: {stats['declined']}")
