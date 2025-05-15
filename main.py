@@ -102,6 +102,7 @@ initialize_excel()
 
 st.title("The Coffee Shop")
 
+# Initialize all session state variables
 if 'selected_items' not in st.session_state:
     st.session_state.selected_items = []
 if 'quantities' not in st.session_state:
@@ -118,6 +119,8 @@ if 'track_results' not in st.session_state:
     st.session_state.track_results = None
 if 'tracking_initialized' not in st.session_state:
     st.session_state.tracking_initialized = False
+if 'quantities_shown' not in st.session_state:  # Added this critical initialization
+    st.session_state.quantities_shown = False
 
 if page == "Customer":
     st.header("Welcome to The Coffee Shop")
@@ -147,7 +150,6 @@ if page == "Customer":
                 total_price = sum(MENU.get(i, 0) * q for i, q in zip(item_list, quantity_list))
                 st.success(f"Order placed! Please pay at the counter. Total: ₹{total_price}")
                 st.markdown(f"## Your Token Number: `{token}`")
-
 
 elif page == "Serve":
     st.header("Serve Orders")
