@@ -1,14 +1,17 @@
 import streamlit as st
 st.set_page_config(page_title="The Coffee Shop", layout="wide")
 
+import sqlite3
 import pandas as pd
 from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
 import uuid
 import random
 import os
+import io
 
-EXCEL_FILE = "coffee_orders.xlsx"
+# Database configuration
+DB_FILE = "coffee_orders.db"
 PASSWORD = os.getenv("SERVE_COOK_PASSWORD", "admin123")
 ADMIN_PASSWORD = os.getenv("ADMIN_DASHBOARD_PASSWORD", "adminpanel")
 
@@ -30,75 +33,113 @@ page = st.sidebar.selectbox("Choose view", ["Customer", "Serve", "Cook", "Track 
 if page not in ["Customer", "Admin Dashboard"]:
     st_autorefresh(interval=5000, key="auto_refresh")
 
-def initialize_excel():
-    try:
-        pd.read_excel(EXCEL_FILE)
-    except FileNotFoundError:
-        df = pd.DataFrame(columns=["OrderID", "OrderTime", "Status", "Item", "Quantity", "AddOns", "Name", "TokenNumber", "TotalPrice", "OrderGroupID"])
-        df.to_excel(EXCEL_FILE, index=False)
+def initialize_db():
+    """Initialize the SQLite database and create tables if they don't exist"""
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS orders
+                     (OrderID TEXT PRIMARY KEY,
+                      OrderGroupID TEXT,
+                      OrderTime TEXT,
+                      Status TEXT,
+                      Item TEXT,
+                      Quantity INTEGER,
+                      AddOns TEXT,
+                      Name TEXT,
+                      TokenNumber TEXT,
+                      TotalPrice REAL)''')
+        conn.commit()
 
-def generate_token():
-    df = pd.read_excel(EXCEL_FILE)
-    existing_tokens = df['TokenNumber'].astype(str).tolist()
+def generate_token() -> str:
+    """Generate a unique token number"""
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute('''SELECT TokenNumber FROM orders''')
+        existing_tokens = [row[0] for row in c.fetchall()]
+        
     while True:
         token = str(random.randint(100, 999))
         if token not in existing_tokens:
             return token
 
-def create_order(item, quantity, addons, name, token_number):
-    df = pd.read_excel(EXCEL_FILE)
+def create_order(items: List[str], quantities: List[int], addons: str, name: str, token_number: str) -> Tuple[bool, str]:
+    """Create a new order in the database"""
     order_group_id = str(uuid.uuid4())
-    for i, q in zip(item, quantity):
-        new_order = {
-            "OrderID": str(uuid.uuid4()),
-            "OrderGroupID": order_group_id,
-            "OrderTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "Status": "Unapproved",
-            "Item": i,
-            "Quantity": q,
-            "AddOns": addons,
-            "Name": name,
-            "TokenNumber": token_number,
-            "TotalPrice": MENU.get(i, 0) * q
-        }
-        df = pd.concat([df, pd.DataFrame([new_order])], ignore_index=True)
-    df.to_excel(EXCEL_FILE, index=False)
-    return True, order_group_id
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            c = conn.cursor()
+            for item, quantity in zip(items, quantities):
+                order_id = str(uuid.uuid4())
+                total_price = MENU.get(item, 0) * quantity
+                c.execute('''INSERT INTO orders VALUES 
+                            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                         (order_id, order_group_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                          "Unapproved", item, quantity, addons, name, token_number, total_price))
+            conn.commit()
+        return True, order_group_id
+    except Exception as e:
+        st.error(f"Error creating order: {e}")
+        return False, ""
 
-def update_order_status(order_id, new_status):
-    df = pd.read_excel(EXCEL_FILE)
-    df.loc[df["OrderID"] == order_id, "Status"] = new_status
-    df.to_excel(EXCEL_FILE, index=False)
+def update_order_status(order_id: str, new_status: str):
+    """Update the status of an order"""
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute('''UPDATE orders SET Status = ? WHERE OrderID = ?''', 
+                  (new_status, order_id))
+        conn.commit()
 
-def get_orders_by_status(status):
-    df = pd.read_excel(EXCEL_FILE)
-    return df[df["Status"] == status]
+def get_orders_by_status(status: str) -> pd.DataFrame:
+    """Get all orders with a specific status"""
+    with sqlite3.connect(DB_FILE) as conn:
+        return pd.read_sql('''SELECT * FROM orders WHERE Status = ? ORDER BY OrderTime''', 
+                          conn, params=(status,))
 
-def cook_order(order_id):
-    update_order_status(order_id, "Completed")
+def get_orders_by_token(token: str) -> pd.DataFrame:
+    """Get all orders for a specific token"""
+    with sqlite3.connect(DB_FILE) as conn:
+        return pd.read_sql('''SELECT * FROM orders WHERE TokenNumber = ? ORDER BY OrderTime''', 
+                          conn, params=(str(token),))
 
-def serve_order(order_id):
-    update_order_status(order_id, "Delivered")
+def get_all_orders() -> pd.DataFrame:
+    """Get all orders from the database"""
+    with sqlite3.connect(DB_FILE) as conn:
+        return pd.read_sql('''SELECT * FROM orders ORDER BY OrderTime DESC''', conn)
 
-def approve_order(order_id):
-    update_order_status(order_id, "Pending")
+def clear_database():
+    """Clear all orders from the database"""
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute('''DELETE FROM orders''')
+        conn.commit()
 
-def decline_order(order_id):
-    update_order_status(order_id, "Declined")
+def export_to_excel() -> bytes:
+    """Export database to Excel format"""
+    df = get_all_orders()
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False)
+    return output.getvalue()
 
-def get_orders_by_token(token):
-    df = pd.read_excel(EXCEL_FILE)
-    return df[df['TokenNumber'].astype(str) == str(token)]
+def get_order_stats() -> Dict[str, int]:
+    """Get statistics about orders"""
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        stats = {}
+        c.execute('''SELECT COUNT(*) FROM orders''')
+        stats['total'] = c.fetchone()[0]
+        c.execute('''SELECT COUNT(*) FROM orders WHERE Status = ?''', ("Pending",))
+        stats['pending'] = c.fetchone()[0]
+        c.execute('''SELECT COUNT(*) FROM orders WHERE Status = ?''', ("Completed",))
+        stats['completed'] = c.fetchone()[0]
+        c.execute('''SELECT COUNT(*) FROM orders WHERE Status = ?''', ("Delivered",))
+        stats['delivered'] = c.fetchone()[0]
+        c.execute('''SELECT COUNT(*) FROM orders WHERE Status = ?''', ("Declined",))
+        stats['declined'] = c.fetchone()[0]
+        return stats
 
-def clear_excel():
-    df = pd.DataFrame(columns=["OrderID", "OrderTime", "Status", "Item", "Quantity", "AddOns", "Name", "TokenNumber", "TotalPrice", "OrderGroupID"])
-    df.to_excel(EXCEL_FILE, index=False)
-
-def export_excel():
-    with open(EXCEL_FILE, "rb") as f:
-        return f.read()
-
-initialize_excel()
+# Initialize database
+initialize_db()
 
 st.title("The Coffee Shop")
 
@@ -119,7 +160,7 @@ if 'track_results' not in st.session_state:
     st.session_state.track_results = None
 if 'tracking_initialized' not in st.session_state:
     st.session_state.tracking_initialized = False
-if 'quantities_shown' not in st.session_state:  # Added this critical initialization
+if 'quantities_shown' not in st.session_state:
     st.session_state.quantities_shown = False
 
 if page == "Customer":
@@ -197,18 +238,21 @@ elif page == "Admin Dashboard":
     if password != ADMIN_PASSWORD:
         st.warning("Incorrect password")
         st.stop()
-    df = pd.read_excel(EXCEL_FILE)
+    df = get_all_orders()
     st.subheader("📊 Orders Overview")
     st.dataframe(df, use_container_width=True)
     st.subheader("⬇️ Export or 🧹 Clear Data")
     col1, col2 = st.columns(2)
     with col1:
-        st.download_button("Export Orders as Excel", data=export_excel(), file_name="coffee_orders_export.xlsx")
+        st.download_button("Export Orders as Excel", 
+                         data=export_to_excel(), 
+                         file_name="coffee_orders_export.xlsx")
     with col2:
         if st.button("Clear All Orders"):
-            clear_excel()
+            clear_database()
             st.success("All orders have been cleared.")
             st.rerun()
     st.subheader("📈 Quick Stats")
-    st.write(f"Total Orders: {len(df)}")
-    st.write(f"Pending: {len(df[df['Status'] == 'Pending'])}, Cooked: {len(df[df['Status'] == 'Completed'])}, Delivered: {len(df[df['Status'] == 'Delivered'])}, Declined: {len(df[df['Status'] == 'Declined'])}")
+    stats = get_order_stats()
+    st.write(f"Total Orders: {stats['total']}")
+    st.write(f"Pending: {stats['pending']}, Cooked: {stats['completed']}, Delivered: {stats['delivered']}, Declined: {stats['declined']}")
