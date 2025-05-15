@@ -124,9 +124,15 @@ if page == "Customer":
     with st.form("customer_form"):
         st.text_input("Your Name", key="name")
         items = st.multiselect("Select your items:", list(MENU.keys()), key="selected_items")
+        
+        # Show quantity inputs immediately after selecting items
         for item in items:
-            st.number_input(f"Quantity for {item}", min_value=1, value=1, key=f"qty_{item}")
+            if f"qty_{item}" not in st.session_state:
+                st.session_state[f"qty_{item}"] = 1  # default quantity 1
+            st.number_input(f"Quantity for {item}", min_value=1, value=st.session_state[f"qty_{item}"], key=f"qty_{item}")
+
         st.text_input("Add-ons / Notes (optional)", key="addons")
+        
         submitted = st.form_submit_button("Place Order")
         if submitted:
             item_list = st.session_state.selected_items
@@ -138,6 +144,7 @@ if page == "Customer":
             if success:
                 st.success("Order placed! Please pay at the counter.")
                 st.markdown(f"## Your Token Number: `{token}`")
+
 
 elif page == "Serve":
     st.header("Serve Orders")
