@@ -6,9 +6,11 @@ from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
 import uuid
 import random
+import os
 
 EXCEL_FILE = "coffee_orders.xlsx"
-PASSWORD = "admin123"  # simple password for serve and cook pages
+PASSWORD = os.getenv("SERVE_COOK_PASSWORD", "admin123")
+ADMIN_PASSWORD = os.getenv("ADMIN_DASHBOARD_PASSWORD", "adminpanel")
 
 MENU = {
     "Espresso": 60,
@@ -24,10 +26,10 @@ MENU = {
     "Paneer Roll": 65
 }
 
-# Auto-refresh every 5 seconds
-st_autorefresh(interval=5000, key="auto_refresh")
+page = st.sidebar.selectbox("Choose view", ["Customer", "Serve", "Cook", "Track Order", "Admin Dashboard"])
+if page not in ["Customer", "Admin Dashboard"]:
+    st_autorefresh(interval=5000, key="auto_refresh")
 
-# Initialize Excel if not exists
 def initialize_excel():
     try:
         pd.read_excel(EXCEL_FILE)
@@ -35,7 +37,6 @@ def initialize_excel():
         df = pd.DataFrame(columns=["OrderID", "OrderTime", "Status", "Item", "Quantity", "AddOns", "Name", "TokenNumber", "TotalPrice", "OrderGroupID"])
         df.to_excel(EXCEL_FILE, index=False)
 
-# Generate a 3-digit unique token number
 def generate_token():
     df = pd.read_excel(EXCEL_FILE)
     existing_tokens = df['TokenNumber'].astype(str).tolist()
@@ -44,7 +45,6 @@ def generate_token():
         if token not in existing_tokens:
             return token
 
-# Create new order
 def create_order(item, quantity, addons, name, token_number):
     df = pd.read_excel(EXCEL_FILE)
     order_group_id = str(uuid.uuid4())
@@ -65,47 +65,43 @@ def create_order(item, quantity, addons, name, token_number):
     df.to_excel(EXCEL_FILE, index=False)
     return True, order_group_id
 
-# Update order status
 def update_order_status(order_id, new_status):
     df = pd.read_excel(EXCEL_FILE)
     df.loc[df["OrderID"] == order_id, "Status"] = new_status
     df.to_excel(EXCEL_FILE, index=False)
 
-# Get orders by status
 def get_orders_by_status(status):
     df = pd.read_excel(EXCEL_FILE)
     return df[df["Status"] == status]
 
-# Mark as cooked
 def cook_order(order_id):
     update_order_status(order_id, "Completed")
 
-# Mark as served
 def serve_order(order_id):
     update_order_status(order_id, "Delivered")
 
-# Approve order after payment
 def approve_order(order_id):
     update_order_status(order_id, "Pending")
 
-# Decline order
 def decline_order(order_id):
     update_order_status(order_id, "Declined")
 
-# Get all orders for a token number
 def get_orders_by_token(token):
     df = pd.read_excel(EXCEL_FILE)
     return df[df['TokenNumber'].astype(str) == str(token)]
 
-# Initialize file
+def clear_excel():
+    df = pd.DataFrame(columns=["OrderID", "OrderTime", "Status", "Item", "Quantity", "AddOns", "Name", "TokenNumber", "TotalPrice", "OrderGroupID"])
+    df.to_excel(EXCEL_FILE, index=False)
+
+def export_excel():
+    with open(EXCEL_FILE, "rb") as f:
+        return f.read()
+
 initialize_excel()
 
-# Streamlit UI
 st.title("The Coffee Shop")
 
-page = st.sidebar.selectbox("Choose view", ["Customer", "Serve", "Cook", "Track Order"])
-
-# Ensure session state persists across page refresh
 if 'selected_items' not in st.session_state:
     st.session_state.selected_items = []
 if 'quantities' not in st.session_state:
@@ -124,112 +120,83 @@ if 'tracking_initialized' not in st.session_state:
     st.session_state.tracking_initialized = False
 
 if page == "Customer":
-    st.header("Customer - Place Your Order")
-    with st.form(key='customer_order_form'):
-        st.session_state.name = st.text_input("Customer Name", value=st.session_state.name)
-        token_number = st.session_state.token_number
-
-        selected_items = st.multiselect("Select Items", list(MENU.keys()), default=st.session_state.selected_items)
-        quantities = []
-        for item in selected_items:
-            q = st.number_input(f"Quantity for {item}", min_value=1, step=1, key=item, value=st.session_state.quantities.get(item, 1))
-            quantities.append(q)
-
-        addons = st.text_area("Add-ons (comma separated)", value=st.session_state.addons)
-        total_price = sum([MENU[item] * q for item, q in zip(selected_items, quantities)])
-        st.write(f"### Total Price: ₹{total_price}")
-
-        st.session_state.selected_items = selected_items
-        st.session_state.quantities = dict(zip(selected_items, quantities))
-        st.session_state.addons = addons
-
-        submitted = st.form_submit_button("Place Order (Pay in Cash)")
+    st.header("Welcome to The Coffee Shop")
+    with st.form("customer_form"):
+        st.text_input("Your Name", key="name")
+        items = st.multiselect("Select your items:", list(MENU.keys()), key="selected_items")
+        for item in items:
+            st.number_input(f"Quantity for {item}", min_value=1, value=1, key=f"qty_{item}")
+        st.text_input("Add-ons / Notes (optional)", key="addons")
+        submitted = st.form_submit_button("Place Order")
         if submitted:
-            if selected_items:
-                success, order_group_id = create_order(selected_items, quantities, addons, st.session_state.name, token_number)
-                st.success("Order placed! Please pay at the counter for approval.")
-                st.markdown(f"## Your Token Number: {token_number}")
-            else:
-                st.warning("Please select at least one item.")
+            item_list = st.session_state.selected_items
+            quantity_list = [st.session_state[f"qty_{i}"] for i in item_list]
+            name = st.session_state.name
+            addons = st.session_state.addons
+            token = st.session_state.token_number
+            success, group_id = create_order(item_list, quantity_list, addons, name, token)
+            if success:
+                st.success("Order placed! Please pay at the counter.")
+                st.markdown(f"## Your Token Number: `{token}`")
 
-elif page == "Track Order":
-    st.header("Track Your Order")
-    token_input = st.text_input("Enter your token number", value=st.session_state.track_token)
-
-    if token_input:
-        st.session_state.track_token = token_input
-        orders = get_orders_by_token(token_input)
-        if not orders.empty:
-            st.session_state.track_results = orders
-        else:
-            st.session_state.track_results = pd.DataFrame()
-
-    if st.session_state.track_token:
-        if st.session_state.track_results is not None:
-            if not st.session_state.track_results.empty:
-                st.markdown(f"## Token: {st.session_state.track_token}")
-                for idx, row in st.session_state.track_results.iterrows():
-                    st.write(f"{row['Item']} x {row['Quantity']} - Status: {row['Status']}")
-            else:
-                st.warning("No orders found for this token number.")
-
-elif page in ["Serve", "Cook"]:
-    password = st.text_input("Enter password to access this page", type="password")
+elif page == "Serve":
+    st.header("Serve Orders")
+    password = st.text_input("Enter password", type="password")
     if password != PASSWORD:
         st.warning("Incorrect password")
         st.stop()
+    orders = get_orders_by_status("Completed")
+    for _, row in orders.iterrows():
+        with st.expander(f"Token {row['TokenNumber']} - {row['Item']} x{row['Quantity']}"):
+            if st.button("Mark as Delivered", key=f"serve_{row['OrderID']}"):
+                serve_order(row['OrderID'])
+                st.success("Order marked as delivered.")
+            if st.button("Decline Order", key=f"decline_serve_{row['OrderID']}"):
+                decline_order(row['OrderID'])
+                st.warning("Order Declined")
 
-    if page == "Cook":
-        st.header("Kitchen - Orders to Prepare")
-        pending_orders = get_orders_by_status("Pending")
-        if not pending_orders.empty:
-            for idx, row in pending_orders.iterrows():
-                with st.expander(f"Order: {row['Item']} (Qty: {row['Quantity']})"):
-                    st.text(f"Add-ons: {row['AddOns']}")
-                    st.text(f"Customer: {row['Name']}, Token: {row['TokenNumber']}")
-                    st.text(f"Total Price: ₹{row['TotalPrice']}")
-                    if st.button("Mark as Cooked", key=row["OrderID"]):
-                        cook_order(row["OrderID"])
-                        st.success("Order marked as cooked.")
-                        st.rerun()
+elif page == "Cook":
+    st.header("Cook Orders")
+    password = st.text_input("Enter password", type="password")
+    if password != PASSWORD:
+        st.warning("Incorrect password")
+        st.stop()
+    orders = get_orders_by_status("Pending")
+    for _, row in orders.iterrows():
+        with st.expander(f"Token {row['TokenNumber']} - {row['Item']} x{row['Quantity']}"):
+            if st.button("Mark as Cooked", key=f"cook_{row['OrderID']}"):
+                cook_order(row['OrderID'])
+                st.success("Order marked as cooked.")
+
+elif page == "Track Order":
+    st.header("Track Your Order")
+    token = st.text_input("Enter your token number to track your order")
+    if st.button("Track"):
+        orders = get_orders_by_token(token)
+        if not orders.empty:
+            st.write(f"### Order Status for Token `{token}`")
+            st.dataframe(orders[["Item", "Quantity", "Status", "TotalPrice"]])
         else:
-            st.info("No pending orders.")
+            st.warning("No order found with this token number.")
 
-    elif page == "Serve":
-        st.header("Serve - Orders to Deliver")
-        unapproved_orders = get_orders_by_status("Unapproved")
-        if not unapproved_orders.empty:
-            st.subheader("Approve or Decline Orders (After Payment)")
-            grouped = unapproved_orders.groupby("OrderGroupID")
-            for group_id, group_df in grouped:
-                with st.expander(f"Order Group - Token: {group_df.iloc[0]['TokenNumber']}, Customer: {group_df.iloc[0]['Name']}"):
-                    for idx, row in group_df.iterrows():
-                        st.text(f"{row['Item']} x {row['Quantity']} (Add-ons: {row['AddOns']}) - ₹{row['TotalPrice']}")
-                    group_total = group_df["TotalPrice"].sum()
-                    st.text(f"Total Price: ₹{group_total}")
-                    col1, col2 = st.columns(2)
-                    if col1.button("Approve Order", key=f"approve_{group_id}"):
-                        for idx, row in group_df.iterrows():
-                            approve_order(row["OrderID"])
-                        st.success("Order approved.")
-                        st.rerun()
-                    if col2.button("Decline Order", key=f"decline_{group_id}"):
-                        for idx, row in group_df.iterrows():
-                            decline_order(row["OrderID"])
-                        st.warning("Order declined.")
-                        st.rerun()
-
-        cooked_orders = get_orders_by_status("Completed")
-        if not cooked_orders.empty:
-            st.subheader("Ready to Serve")
-            for idx, row in cooked_orders.iterrows():
-                with st.expander(f"Order: {row['Item']} (Qty: {row['Quantity']})"):
-                    st.text(f"Add-ons: {row['AddOns']}")
-                    st.text(f"Customer: {row['Name']}, Token: {row['TokenNumber']}")
-                    st.text(f"Total Price: ₹{row['TotalPrice']}")
-                    if st.button("Mark as Delivered", key=row["OrderID"]):
-                        serve_order(row["OrderID"])
-                        st.success("Order marked as delivered.")
-                        st.rerun()
-        else:
-            st.info("No orders ready to serve.")
+elif page == "Admin Dashboard":
+    st.header("Admin Dashboard")
+    password = st.text_input("Enter admin password", type="password")
+    if password != ADMIN_PASSWORD:
+        st.warning("Incorrect password")
+        st.stop()
+    df = pd.read_excel(EXCEL_FILE)
+    st.subheader("📊 Orders Overview")
+    st.dataframe(df, use_container_width=True)
+    st.subheader("⬇️ Export or 🧹 Clear Data")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button("Export Orders as Excel", data=export_excel(), file_name="coffee_orders_export.xlsx")
+    with col2:
+        if st.button("Clear All Orders"):
+            clear_excel()
+            st.success("All orders have been cleared.")
+            st.rerun()
+    st.subheader("📈 Quick Stats")
+    st.write(f"Total Orders: {len(df)}")
+    st.write(f"Pending: {len(df[df['Status'] == 'Pending'])}, Cooked: {len(df[df['Status'] == 'Completed'])}, Delivered: {len(df[df['Status'] == 'Delivered'])}, Declined: {len(df[df['Status'] == 'Declined'])}")
