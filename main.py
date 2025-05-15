@@ -121,28 +121,31 @@ if 'tracking_initialized' not in st.session_state:
 
 if page == "Customer":
     st.header("Welcome to The Coffee Shop")
-    with st.form("customer_form"):
-        st.text_input("Your Name", key="name")
-        items = st.multiselect("Select your items:", list(MENU.keys()), key="selected_items")
-        
-        # Show quantity inputs immediately after selecting items
-        for item in items:
-            if f"qty_{item}" not in st.session_state:
-                st.session_state[f"qty_{item}"] = 1  # default quantity 1
-            st.number_input(f"Quantity for {item}", min_value=1, value=st.session_state[f"qty_{item}"], key=f"qty_{item}")
+    st.text_input("Your Name", key="name")
+    selected_items = st.multiselect("Select your items:", list(MENU.keys()), key="selected_items")
 
-        st.text_input("Add-ons / Notes (optional)", key="addons")
-        
-        submitted = st.form_submit_button("Place Order")
-        if submitted:
-            item_list = st.session_state.selected_items
-            quantity_list = [st.session_state[f"qty_{i}"] for i in item_list]
+    if selected_items and st.button("Set Quantity"):
+        st.session_state.quantities_shown = True
+
+    if st.session_state.quantities_shown:
+        for item in selected_items:
+            st.session_state.quantities[item] = st.number_input(f"Quantity for {item}", min_value=1, value=1, key=f"qty_{item}")
+
+    st.text_input("Add-ons / Notes (optional)", key="addons")
+
+    if st.button("Place Order"):
+        if not selected_items or not st.session_state.quantities_shown:
+            st.warning("Please select items and set their quantities first.")
+        else:
+            item_list = selected_items
+            quantity_list = [st.session_state.quantities.get(i, 1) for i in item_list]
             name = st.session_state.name
             addons = st.session_state.addons
             token = st.session_state.token_number
             success, group_id = create_order(item_list, quantity_list, addons, name, token)
             if success:
-                st.success("Order placed! Please pay at the counter.")
+                total_price = sum(MENU.get(i, 0) * q for i, q in zip(item_list, quantity_list))
+                st.success(f"Order placed! Please pay at the counter. Total: ₹{total_price}")
                 st.markdown(f"## Your Token Number: `{token}`")
 
 
