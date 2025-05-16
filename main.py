@@ -82,7 +82,7 @@ def create_order(items: List[str], quantities: List[int], addons: str, name: str
                 c.execute('''INSERT INTO orders VALUES 
                             (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                          (order_id, order_group_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                          "Unapproved", item, quantity, addons, name, token_number, total_price))
+                          "Pending", item, quantity, addons, name, token_number, total_price))
             conn.commit()
         return True, order_group_id
     except Exception as e:
@@ -136,8 +136,6 @@ def get_order_stats() -> Dict[str, int]:
         stats = {}
         c.execute('''SELECT COUNT(*) FROM orders''')
         stats['total'] = c.fetchone()[0]
-        c.execute('''SELECT COUNT(*) FROM orders WHERE Status = ?''', ("Unapproved",))
-        stats['unapproved'] = c.fetchone()[0]
         c.execute('''SELECT COUNT(*) FROM orders WHERE Status = ?''', ("Pending",))
         stats['pending'] = c.fetchone()[0]
         c.execute('''SELECT COUNT(*) FROM orders WHERE Status = ?''', ("Completed",))
@@ -208,23 +206,23 @@ elif page == "Serve":
         st.stop()
     
     # Combined approval and serving interface
-    tab1, tab2 = st.tabs(["Approve Orders", "Serve Prepared Orders"])
+    tab1, tab2 = st.tabs(["New Orders", "Ready to Serve"])
     
     with tab1:
-        st.subheader("Approve New Orders")
-        unapproved_orders = get_orders_by_status("Unapproved")
+        st.subheader("New Orders")
+        pending_orders = get_orders_by_status("Pending")
         
-        if unapproved_orders.empty:
-            st.info("No orders waiting for approval")
+        if pending_orders.empty:
+            st.info("No new orders waiting")
         else:
-            for _, row in unapproved_orders.iterrows():
+            for _, row in pending_orders.iterrows():
                 with st.expander(f"Token {row['TokenNumber']} - {row['Name']} - {row['Item']} x{row['Quantity']} (₹{row['TotalPrice']})"):
                     st.write(f"**Order:** {row['Item']} x{row['Quantity']}")
                     st.write(f"**Total:** ₹{row['TotalPrice']}")
                     st.write(f"**Notes:** {row['AddOns']}")
                     if st.button("Approve Order", key=f"approve_{row['OrderID']}"):
-                        update_order_status(row['OrderID'], "Pending")
-                        st.success("Order approved and sent to kitchen!")
+                        update_order_status(row['OrderID'], "Completed")
+                        st.success("Order approved and ready to serve!")
                         st.rerun()
                     if st.button("Decline Order", key=f"decline_{row['OrderID']}"):
                         update_order_status(row['OrderID'], "Declined")
@@ -232,7 +230,7 @@ elif page == "Serve":
                         st.rerun()
     
     with tab2:
-        st.subheader("Serve Prepared Orders")
+        st.subheader("Ready to Serve")
         completed_orders = get_orders_by_status("Completed")
         
         if completed_orders.empty:
@@ -280,15 +278,16 @@ elif page == "Cook":
 elif page == "Track Order":
     st.header("Track Your Order")
     
-    # Create a form to maintain the token input
-    with st.form("track_order_form"):
-        token = st.text_input("Enter your token number to track your order", key="track_token")
-        submitted = st.form_submit_button("Track")
+    # Use session state to maintain the token value
+    token = st.text_input(
+        "Enter your token number to track your order",
+        value=st.session_state.get('track_token', ''),
+        key="track_token_input"
+    )
     
     # Display area that will auto-update
     track_placeholder = st.empty()
     
-    # Function to display order status
     def display_order_status():
         if token:
             orders = get_orders_by_token(token)
@@ -312,7 +311,7 @@ elif page == "Track Order":
                         st.metric("Current Status", current_status)
                     
                     # Show status progress
-                    status_flow = ["Unapproved", "Pending", "Completed", "Delivered"]
+                    status_flow = ["Pending", "Completed", "Delivered"]
                     try:
                         current_index = status_flow.index(current_status)
                         progress = (current_index + 1) / len(status_flow)
@@ -324,18 +323,12 @@ elif page == "Track Order":
                     st.warning("No order found with this token number.")
     
     # Initial display
-    if submitted or token:
+    if token:
         display_order_status()
     
-    # Auto-refresh only the results
+    # Auto-refresh
     if page == "Track Order":
-        st_autorefresh(
-            interval=5000, 
-            key="track_order_refresh",
-            limit=100,
-            debounce=True,
-            on_refresh=display_order_status
-        )
+        st_autorefresh(interval=5000, key="track_order_refresh")
 
 elif page == "Admin Dashboard":
     st.header("Admin Dashboard")
@@ -360,5 +353,5 @@ elif page == "Admin Dashboard":
     st.subheader("📈 Quick Stats")
     stats = get_order_stats()
     st.write(f"Total Orders: {stats['total']}")
-    st.write(f"Unapproved: {stats['unapproved']}, Pending: {stats['pending']}")
-    st.write(f"Cooked: {stats['completed']}, Delivered: {stats['delivered']}, Declined: {stats['declined']}")
+    st.write(f"Pending: {stats['pending']}, Prepared: {stats['completed']}")
+    st.write(f"Delivered: {stats['delivered']}, Declined: {stats['declined']}")
