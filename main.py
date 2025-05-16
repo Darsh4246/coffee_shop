@@ -37,7 +37,7 @@ width="100%" height="152" frameBorder="0" allowfullscreen=""
 allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
 """, unsafe_allow_html=True)
 
-page = st.sidebar.selectbox("Choose view", ["Customer", "Approve", "Cook", "Serve", "Track Order", "Admin Dashboard"])
+page = st.sidebar.selectbox("Choose view", ["Customer", "Serve", "Cook", "Track Order", "Admin Dashboard"])
 if page not in ["Customer", "Admin Dashboard", "Track Order"]:
     st_autorefresh(interval=5000, key="auto_refresh")
 
@@ -164,8 +164,6 @@ if 'name' not in st.session_state:
     st.session_state.name = ""
 if 'token_number' not in st.session_state:
     st.session_state.token_number = generate_token()
-if 'track_token_input' not in st.session_state:
-    st.session_state.track_token_input = ""
 if 'track_results' not in st.session_state:
     st.session_state.track_results = None
 if 'tracking_initialized' not in st.session_state:
@@ -202,39 +200,62 @@ if page == "Customer":
                 st.success(f"Order placed! Please pay at the counter. Total: ₹{total_price}")
                 st.markdown(f"## Your Token Number: `{token}`")
 
-elif page == "Approve":
-    st.header("Approve Orders After Payment")
+elif page == "Serve":
+    st.header("Serve Orders")
     password = st.text_input("Enter password", type="password")
     if password != PASSWORD:
         st.warning("Incorrect password")
         st.stop()
     
-    unapproved_orders = get_orders_by_status("Unapproved")
-    pending_orders = get_orders_by_status("Pending")
+    # Combined approval and serving interface
+    tab1, tab2 = st.tabs(["Approve Orders", "Serve Prepared Orders"])
     
-    st.subheader("Awaiting Payment Approval")
-    if unapproved_orders.empty:
-        st.info("No orders waiting for approval")
-    else:
-        for _, row in unapproved_orders.iterrows():
-            with st.expander(f"Token {row['TokenNumber']} - {row['Name']} - {row['Item']} x{row['Quantity']} (₹{row['TotalPrice']})"):
-                st.write(f"**Order:** {row['Item']} x{row['Quantity']}")
-                st.write(f"**Total:** ₹{row['TotalPrice']}")
-                st.write(f"**Notes:** {row['AddOns']}")
-                if st.button("Approve Payment", key=f"approve_{row['OrderID']}"):
-                    update_order_status(row['OrderID'], "Pending")
-                    st.success("Payment approved - sent to kitchen")
-                    st.rerun()
-                if st.button("Decline Order", key=f"decline_{row['OrderID']}"):
-                    update_order_status(row['OrderID'], "Declined")
-                    st.warning("Order declined")
-                    st.rerun()
-
-    st.subheader("Approved Orders (Pending Preparation)")
-    if pending_orders.empty:
-        st.info("No orders pending preparation")
-    else:
-        st.dataframe(pending_orders[["TokenNumber", "Item", "Quantity", "TotalPrice"]])
+    with tab1:
+        st.subheader("Approve New Orders")
+        unapproved_orders = get_orders_by_status("Unapproved")
+        
+        if unapproved_orders.empty:
+            st.info("No orders waiting for approval")
+        else:
+            for _, row in unapproved_orders.iterrows():
+                with st.expander(f"Token {row['TokenNumber']} - {row['Name']} - {row['Item']} x{row['Quantity']} (₹{row['TotalPrice']})"):
+                    st.write(f"**Order:** {row['Item']} x{row['Quantity']}")
+                    st.write(f"**Total:** ₹{row['TotalPrice']}")
+                    st.write(f"**Notes:** {row['AddOns']}")
+                    if st.button("Approve Order", key=f"approve_{row['OrderID']}"):
+                        update_order_status(row['OrderID'], "Pending")
+                        st.success("Order approved and sent to kitchen!")
+                        st.rerun()
+                    if st.button("Decline Order", key=f"decline_{row['OrderID']}"):
+                        update_order_status(row['OrderID'], "Declined")
+                        st.warning("Order declined")
+                        st.rerun()
+    
+    with tab2:
+        st.subheader("Serve Prepared Orders")
+        completed_orders = get_orders_by_status("Completed")
+        
+        if completed_orders.empty:
+            st.info("No orders ready to serve yet")
+        else:
+            token_numbers = completed_orders['TokenNumber'].unique()
+            for token in token_numbers:
+                token_orders = completed_orders[completed_orders['TokenNumber'] == token]
+                customer_name = token_orders.iloc[0]['Name']
+                
+                with st.expander(f"Token {token} - {customer_name}"):
+                    st.write("**Order Summary:**")
+                    for _, row in token_orders.iterrows():
+                        st.write(f"- {row['Item']} x{row['Quantity']} (₹{row['TotalPrice']})")
+                    
+                    total = token_orders['TotalPrice'].sum()
+                    st.write(f"**Total: ₹{total}**")
+                    
+                    if st.button("Mark as Delivered", key=f"serve_{token}"):
+                        for _, row in token_orders.iterrows():
+                            update_order_status(row['OrderID'], "Delivered")
+                        st.success(f"Order for Token {token} marked as delivered!")
+                        st.rerun()
 
 elif page == "Cook":
     st.header("Kitchen - Prepare Orders")
@@ -256,48 +277,13 @@ elif page == "Cook":
                     st.success("Order marked as ready to serve!")
                     st.rerun()
 
-elif page == "Serve":
-    st.header("Serve Orders to Customers")
-    password = st.text_input("Enter password", type="password")
-    if password != PASSWORD:
-        st.warning("Incorrect password")
-        st.stop()
-    
-    orders = get_orders_by_status("Completed")
-    if orders.empty:
-        st.info("No orders ready to serve yet")
-    else:
-        token_numbers = orders['TokenNumber'].unique()
-        for token in token_numbers:
-            token_orders = orders[orders['TokenNumber'] == token]
-            customer_name = token_orders.iloc[0]['Name']
-            
-            with st.expander(f"Token {token} - {customer_name}"):
-                st.write("**Order Summary:**")
-                for _, row in token_orders.iterrows():
-                    st.write(f"- {row['Item']} x{row['Quantity']} (₹{row['TotalPrice']})")
-                
-                total = token_orders['TotalPrice'].sum()
-                st.write(f"**Total: ₹{total}**")
-                
-                if st.button("Mark as Delivered", key=f"serve_{token}"):
-                    for _, row in token_orders.iterrows():
-                        update_order_status(row['OrderID'], "Delivered")
-                    st.success(f"Order for Token {token} marked as delivered!")
-                    st.rerun()
-
 elif page == "Track Order":
     st.header("Track Your Order")
     
-    # Persistent input field
-    token = st.text_input(
-        "Enter your token number to track your order",
-        value=st.session_state.get('track_token_input', ''),
-        key="track_token_input"
-    )
-    
-    # Store the token in session state
-    st.session_state.track_token_input = token
+    # Create a form to maintain the token input
+    with st.form("track_order_form"):
+        token = st.text_input("Enter your token number to track your order", key="track_token")
+        submitted = st.form_submit_button("Track")
     
     # Display area that will auto-update
     track_placeholder = st.empty()
@@ -338,7 +324,8 @@ elif page == "Track Order":
                     st.warning("No order found with this token number.")
     
     # Initial display
-    display_order_status()
+    if submitted or token:
+        display_order_status()
     
     # Auto-refresh only the results
     if page == "Track Order":
