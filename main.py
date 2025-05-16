@@ -1,6 +1,6 @@
 import streamlit as st
 st.set_page_config(page_title="The Coffee Shop", layout="wide")
-
+import xlsxwriter
 import sqlite3
 import pandas as pd
 from streamlit_autorefresh import st_autorefresh
