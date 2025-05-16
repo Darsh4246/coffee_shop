@@ -42,7 +42,6 @@ if page not in ["Customer", "Admin Dashboard", "Track Order"]:
     st_autorefresh(interval=5000, key="auto_refresh")
 
 def initialize_db():
-    """Initialize the SQLite database and create tables if they don't exist"""
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute('''CREATE TABLE IF NOT EXISTS orders
@@ -59,19 +58,16 @@ def initialize_db():
         conn.commit()
 
 def generate_token() -> str:
-    """Generate a unique token number"""
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute('''SELECT TokenNumber FROM orders''')
         existing_tokens = [row[0] for row in c.fetchall()]
-        
     while True:
         token = str(random.randint(100, 999))
         if token not in existing_tokens:
             return token
 
 def create_order(items: List[str], quantities: List[int], addons: str, name: str, token_number: str) -> Tuple[bool, str]:
-    """Create a new order in the database"""
     order_group_id = str(uuid.uuid4())
     try:
         with sqlite3.connect(DB_FILE) as conn:
@@ -90,7 +86,6 @@ def create_order(items: List[str], quantities: List[int], addons: str, name: str
         return False, ""
 
 def update_order_status(order_id: str, new_status: str):
-    """Update the status of an order"""
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute('''UPDATE orders SET Status = ? WHERE OrderID = ?''', 
@@ -98,31 +93,26 @@ def update_order_status(order_id: str, new_status: str):
         conn.commit()
 
 def get_orders_by_status(status: str) -> pd.DataFrame:
-    """Get all orders with a specific status"""
     with sqlite3.connect(DB_FILE) as conn:
         return pd.read_sql('''SELECT * FROM orders WHERE Status = ? ORDER BY OrderTime''', 
                           conn, params=(status,))
 
 def get_orders_by_token(token: str) -> pd.DataFrame:
-    """Get all orders for a specific token"""
     with sqlite3.connect(DB_FILE) as conn:
         return pd.read_sql('''SELECT * FROM orders WHERE TokenNumber = ? ORDER BY OrderTime''', 
                           conn, params=(str(token),))
 
 def get_all_orders() -> pd.DataFrame:
-    """Get all orders from the database"""
     with sqlite3.connect(DB_FILE) as conn:
         return pd.read_sql('''SELECT * FROM orders ORDER BY OrderTime DESC''', conn)
 
 def clear_database():
-    """Clear all orders from the database"""
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute('''DELETE FROM orders''')
         conn.commit()
 
 def export_to_excel() -> bytes:
-    """Export database to Excel format"""
     df = get_all_orders()
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -130,7 +120,6 @@ def export_to_excel() -> bytes:
     return output.getvalue()
 
 def get_order_stats() -> Dict[str, int]:
-    """Get statistics about orders"""
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         stats = {}
@@ -138,6 +127,8 @@ def get_order_stats() -> Dict[str, int]:
         stats['total'] = c.fetchone()[0]
         c.execute('''SELECT COUNT(*) FROM orders WHERE Status = ?''', ("Pending",))
         stats['pending'] = c.fetchone()[0]
+        c.execute('''SELECT COUNT(*) FROM orders WHERE Status = ?''', ("Cooking",))
+        stats['cooking'] = c.fetchone()[0]
         c.execute('''SELECT COUNT(*) FROM orders WHERE Status = ?''', ("Completed",))
         stats['completed'] = c.fetchone()[0]
         c.execute('''SELECT COUNT(*) FROM orders WHERE Status = ?''', ("Delivered",))
@@ -146,12 +137,9 @@ def get_order_stats() -> Dict[str, int]:
         stats['declined'] = c.fetchone()[0]
         return stats
 
-# Initialize database
 initialize_db()
-
 st.title("The Coffee Shop")
 
-# Initialize all session state variables
 if 'selected_items' not in st.session_state:
     st.session_state.selected_items = []
 if 'quantities' not in st.session_state:
@@ -204,14 +192,12 @@ elif page == "Serve":
     if password != PASSWORD:
         st.warning("Incorrect password")
         st.stop()
-    
-    # Combined approval and serving interface
+
     tab1, tab2 = st.tabs(["New Orders", "Ready to Serve"])
-    
+
     with tab1:
         st.subheader("New Orders")
         pending_orders = get_orders_by_status("Pending")
-        
         if pending_orders.empty:
             st.info("No new orders waiting")
         else:
@@ -221,18 +207,17 @@ elif page == "Serve":
                     st.write(f"**Total:** ₹{row['TotalPrice']}")
                     st.write(f"**Notes:** {row['AddOns']}")
                     if st.button("Approve Order", key=f"approve_{row['OrderID']}"):
-                        update_order_status(row['OrderID'], "Completed")
-                        st.success("Order approved and ready to serve!")
+                        update_order_status(row['OrderID'], "Cooking")
+                        st.success("Order approved and sent to kitchen!")
                         st.rerun()
                     if st.button("Decline Order", key=f"decline_{row['OrderID']}"):
                         update_order_status(row['OrderID'], "Declined")
                         st.warning("Order declined")
                         st.rerun()
-    
+
     with tab2:
         st.subheader("Ready to Serve")
         completed_orders = get_orders_by_status("Completed")
-        
         if completed_orders.empty:
             st.info("No orders ready to serve yet")
         else:
@@ -240,15 +225,12 @@ elif page == "Serve":
             for token in token_numbers:
                 token_orders = completed_orders[completed_orders['TokenNumber'] == token]
                 customer_name = token_orders.iloc[0]['Name']
-                
                 with st.expander(f"Token {token} - {customer_name}"):
                     st.write("**Order Summary:**")
                     for _, row in token_orders.iterrows():
                         st.write(f"- {row['Item']} x{row['Quantity']} (₹{row['TotalPrice']})")
-                    
                     total = token_orders['TotalPrice'].sum()
                     st.write(f"**Total: ₹{total}**")
-                    
                     if st.button("Mark as Delivered", key=f"serve_{token}"):
                         for _, row in token_orders.iterrows():
                             update_order_status(row['OrderID'], "Delivered")
@@ -261,8 +243,7 @@ elif page == "Cook":
     if password != PASSWORD:
         st.warning("Incorrect password")
         st.stop()
-    
-    orders = get_orders_by_status("Pending")
+    orders = get_orders_by_status("Cooking")
     if orders.empty:
         st.info("No orders to prepare - all caught up!")
     else:
@@ -277,17 +258,9 @@ elif page == "Cook":
 
 elif page == "Track Order":
     st.header("Track Your Order")
-    
-    # Use session state to maintain the token value
-    token = st.text_input(
-        "Enter your token number to track your order",
-        value=st.session_state.get('track_token', ''),
-        key="track_token_input"
-    )
-    
-    # Display area that will auto-update
+    token = st.text_input("Enter your token number to track your order", value=st.session_state.get('track_token', ''), key="track_token_input")
     track_placeholder = st.empty()
-    
+
     def display_order_status():
         if token:
             orders = get_orders_by_token(token)
@@ -295,12 +268,9 @@ elif page == "Track Order":
                 with track_placeholder.container():
                     st.write(f"### Order Status for Token `{token}`")
                     st.dataframe(orders[["Item", "Quantity", "Status", "TotalPrice"]])
-                    
-                    # Display summary information
                     total_items = orders['Quantity'].sum()
                     total_price = orders['TotalPrice'].sum()
                     current_status = orders.iloc[0]['Status']
-                    
                     st.write("### Order Summary")
                     col1, col2, col3 = st.columns(3)
                     with col1:
@@ -309,9 +279,7 @@ elif page == "Track Order":
                         st.metric("Total Amount", f"₹{total_price}")
                     with col3:
                         st.metric("Current Status", current_status)
-                    
-                    # Show status progress
-                    status_flow = ["Pending", "Completed", "Delivered"]
+                    status_flow = ["Pending", "Cooking", "Completed", "Delivered"]
                     try:
                         current_index = status_flow.index(current_status)
                         progress = (current_index + 1) / len(status_flow)
@@ -321,12 +289,9 @@ elif page == "Track Order":
             else:
                 with track_placeholder.container():
                     st.warning("No order found with this token number.")
-    
-    # Initial display
+
     if token:
         display_order_status()
-    
-    # Auto-refresh
     if page == "Track Order":
         st_autorefresh(interval=5000, key="track_order_refresh")
 
@@ -353,5 +318,5 @@ elif page == "Admin Dashboard":
     st.subheader("📈 Quick Stats")
     stats = get_order_stats()
     st.write(f"Total Orders: {stats['total']}")
-    st.write(f"Pending: {stats['pending']}, Prepared: {stats['completed']}")
+    st.write(f"Pending: {stats['pending']}, Cooking: {stats['cooking']}, Prepared: {stats['completed']}")
     st.write(f"Delivered: {stats['delivered']}, Declined: {stats['declined']}")
