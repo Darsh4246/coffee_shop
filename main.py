@@ -30,13 +30,6 @@ MENU = {
     "Paneer Roll": 65
 }
 
-# Fun Spotify embed
-st.markdown("""
-<iframe style="border-radius:12px" src="https://open.spotify.com/embed/track/4gvrJnKCKIPiacNsWVQwEU?utm_source=generator" 
-width="100%" height="152" frameBorder="0" allowfullscreen="" 
-allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
-""", unsafe_allow_html=True)
-
 page = st.sidebar.selectbox("Choose view", ["Customer", "Serve", "Cook", "Track Order", "Admin Dashboard"])
 if page not in ["Customer", "Admin Dashboard", "Track Order"]:
     st_autorefresh(interval=5000, key="auto_refresh")
@@ -320,3 +313,4 @@ elif page == "Admin Dashboard":
     st.write(f"Total Orders: {stats['total']}")
     st.write(f"Pending: {stats['pending']}, Cooking: {stats['cooking']}, Prepared: {stats['completed']}")
     st.write(f"Delivered: {stats['delivered']}, Declined: {stats['declined']}")
+
