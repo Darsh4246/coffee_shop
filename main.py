@@ -1,6 +1,6 @@
 import streamlit as st
-st.set_page_config(page_title="The Coffee Shop", layout="wide")
-
+st.set_page_config(page_title="FunFlix Café", layout="wide")
+st.image("logo.png", width=200)
 import sqlite3
 import pandas as pd
 from streamlit_autorefresh import st_autorefresh
@@ -17,17 +17,13 @@ PASSWORD = os.getenv("SERVE_COOK_PASSWORD", "admin123")
 ADMIN_PASSWORD = os.getenv("ADMIN_DASHBOARD_PASSWORD", "adminpanel")
 
 MENU = {
-    "Espresso": 60,
-    "Latte": 80,
-    "Cappuccino": 75,
-    "Mocha": 85,
-    "Americano": 70,
-    "Butter Popcorn": 40,
-    "Caramel Popcorn": 50,
-    "Paneer Sandwich": 65,
-    "Peri Peri Sandwich": 70,
-    "Veg Roll": 55,
-    "Paneer Roll": 65
+    "Icecream": 50,
+    "Juice": 20,
+    "Smores": 50,
+    "Dubai chocolate": 70,
+    "Milkshake": 0,  # price varies (MRP)
+    "Lollipop": 15,
+    "Coconut water": 60
 }
 
 page = st.sidebar.selectbox("Choose view", ["Customer", "Serve", "Cook", "Track Order", "Admin Dashboard"])
@@ -131,7 +127,7 @@ def get_order_stats() -> Dict[str, int]:
         return stats
 
 initialize_db()
-st.title("The Coffee Shop")
+st.title("FunFlix Café")
 
 if 'selected_items' not in st.session_state:
     st.session_state.selected_items = []
@@ -151,7 +147,7 @@ if 'quantities_shown' not in st.session_state:
     st.session_state.quantities_shown = False
 
 if page == "Customer":
-    st.header("Welcome to The Coffee Shop")
+    st.header("Welcome to FunFlix Café")
     st.text_input("Your Name", key="name")
     selected_items = st.multiselect("Select your items:", list(MENU.keys()), key="selected_items")
 
