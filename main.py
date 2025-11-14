@@ -17,13 +17,11 @@ PASSWORD = os.getenv("SERVE_COOK_PASSWORD", "admin123")
 ADMIN_PASSWORD = os.getenv("ADMIN_DASHBOARD_PASSWORD", "adminpanel")
 
 MENU = {
-    "Icecream": 50,
-    "Juice": 20,
-    "Smores": 50,
-    "Dubai chocolate": 70,
-    "Milkshake": 0,  # price varies (MRP)
-    "Lollipop": 15,
-    "Coconut water": 60
+    "Momos - ₹70/5pc": 70,
+    "Orange Popsicle - ₹20": 20,
+    "Vanilla Cone - ₹30": 30,
+    "Sprite - ₹30": 30,
+    "Milkshake - ₹30": 30
 }
 
 page = st.sidebar.selectbox("Choose view", ["Customer", "Serve", "Cook", "Track Order", "Admin Dashboard"])
@@ -309,4 +307,5 @@ elif page == "Admin Dashboard":
     st.write(f"Total Orders: {stats['total']}")
     st.write(f"Pending: {stats['pending']}, Cooking: {stats['cooking']}, Prepared: {stats['completed']}")
     st.write(f"Delivered: {stats['delivered']}, Declined: {stats['declined']}")
+
 
